@@ -1,0 +1,328 @@
+#! /bin/bash
+
+# SlacK3b - a cd/dvd burning application
+# Copyright (C) 2008  danix - < danix@danixland.net >
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# programs
+dvdburner=/usr/bin/growisofs
+cdburner=/usr/bin/cdrecord
+isomaker=/usr/bin/mkisofs
+
+### VARIABLES ###
+cd_max_dim=734003200
+temp_dir=/tmp/SlacK3b
+burn_device=/dev/hdc
+
+
+### ERRORS ###
+E_NOTISO=21
+
+
+### FUNCTIONS ###
+
+# function that checks the temporary directory
+check_temp () {
+	if [[ ! -d $temp_dir ]];then
+		mkdir -p $temp_dir
+	else
+		rm -rf $temp_dir
+		mkdir -p $temp_dir
+	fi
+}
+
+# function that shows a welcome message
+welcome () {
+	dialog --clear --title "SlacK3b 0.2 alpha" --msgbox "Welcome to SlacK3b
+	
+	SlacK3b is a tool for cd/dvd burning.
+	Of course it's not a matter of reinventing the wheel,
+	but it's opinion of the author that a wrapper around `basename $dvdburner`,
+	`basename $cdburner` and `basename $isomaker` was needed.
+	Someone could say that already exists a lot of applications that to this
+	kind of stuff, but none of these programs are simple shell scripts with 
+	no dependancies at all other than the 3 programs I listed before and 
+	the dialog library which is installed by default on almost every Linux pc.
+
+	I hope you'll enjoy using SlacK3b, I made it as simple as I could...
+	
+	danix" 0 0
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+}
+
+# function that shows the main menu of SlacK3b
+main_menu () {
+	dialog --clear --title "Select an operation" --menu "Select an option from the following menu:" 0 0 0 \
+	0 "Burn an already existing ISO image on cd" \
+	1 "Burn an already existing ISO image on dvd" \
+	2  "Start creating a CD image containing data and burn it" \
+        3 "Create a DVD image for data storage and burn it on DVD" \
+	4 "Blank a CD/RW" \
+	5 "Verify written data" 2> $temp_dir/oper_menu
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+}
+
+# function that checks an iso image for cd or dvd
+checkiso () {
+	dialog --clear --title "Select an ISO image" --fselect ~/ 0 0 2> $temp_dir/iso_selected
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+	isoimage=`cat $temp_dir/iso_selected`
+	if [[ -f $isoimage ]];then
+		if [[ $isoimage == *.iso ]];then
+			isoimage_dim=$(stat -c%s "$isoimage")
+			if [[ $isoimage_dim -lt $cd_max_dim ]];then
+				cd_burniso
+			else
+				dialog --clear --title "Attention" --msgbox "The image `basename $isoimage` you want to burn is bigger than 700 MB so will be burned on a DVD disk." 0 0
+				dvd_burniso
+			fi
+		else
+			dialog --clear --title "Warning" --msgbox "The image you were trying to burn is not a valid ISO image. Aborting." 0 0
+			exit $E_NOTISO
+		fi
+	else
+		dialog --clear --title "Warning" --msgbox "The image `basename $isoimage` you were trying to burn does not exists. Aborting." 0 0
+		exit $E_NOTISO
+	fi
+}
+
+# function that burns the iso on cd
+cd_burniso () {
+	dialog --clear --title "Select the burning speed" --radiolist "Select the burning speed from the choices below" 0 0 0 \
+	0 "1x" "on" \
+	1 "2x" "off" \
+	2 "4x" "off" \
+	3 "8x" "off" \
+	4 "12x" "off" \
+	5 "16x" "off" \
+	6 "24x" "off" \
+	7 "32x" "off" \
+	8 "42x" "off" \
+	9 "54x" "off" \
+	10 "auto" "off" 2> $temp_dir/cd_burniso_speed
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+	cd_burn_iso_speed=`cat $temp_dir/cd_burniso_speed`
+	case $cd_burn_iso_speed in
+		0 ) burning_speed=1
+			;;
+		1 ) burning_speed=2
+			;;
+		2 ) burning_speed=4
+			;;
+		3 ) burning_speed=8
+			;;
+		4 ) burning_speed=12
+			;;
+		5 ) burning_speed=16
+			;;
+		6 ) burning_speed=24
+			;;
+		7 ) burning_speed=32
+			;;
+		8 ) burning_speed=42
+			;;
+		9 ) burning_speed=54
+			;;
+		10 ) burning_speed="auto"
+			;;
+	esac
+	if [[ $burning_speed == "auto" ]];then
+		dialog --title "Burning ISO image on CD-R" --cr-wrap --infobox "Burning `basename $isoimage`\n\
+		\nThis process can take quite some time, if you'd like to watch the progress you can switch to another console and type:\n\
+		\ntail -f $temp_dir/iso_recording" 0 0
+		$cdburner -v dev=$burn_device -dao -eject $isoimage &>$temp_dir/iso_recording_CD
+	else
+		dialog --title "Burning ISO image on CD-R" --cr-wrap --infobox "Burning `basename $isoimage`\n\
+		\nThis process can take quite some time, if you'd like to watch the progress you can switch to another console and type:\n\
+		\ntail -f $temp_dir/iso_recording" 0 0
+		$cdburner -v dev=$burn_device -dao -eject speed=$burning_speed $isoimage &>$temp_dir/iso_recording_CD
+	fi
+}
+
+# function that blanks a cdrw
+blank_cd () {
+	dialog --clear --title "Select blanking speed" --radiolist "Select the blanking speed for the CDRW from the list below" 0 0 0 \
+	0 "2x" "on" \
+	1 "4x" "off" \
+	2 "12x" "off" \
+	3 "24x" "off" \
+	4 "max" "off" \
+	5 "auto" "off" 2> $temp_dir/cd_blanking_speed
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+	blanking_cd_speed=`cat $temp_dir/cd_blanking_speed`
+	case $blanking_cd_speed in
+		0 ) blanking_speed=2
+			;;
+		1 ) blanking_speed=4
+			;;
+		2 ) blanking_speed=12
+			;;
+		3 ) blanking_speed=24
+			;;
+		4 ) blanking_speed=52
+			;;
+		5 ) blanking_speed="auto"
+	esac
+	if [[ $blanking_speed == "auto" ]];then
+		dialog --title "Blanking CDRW" --cr-wrap --infobox "Blanking CDRW\n\
+		\nBlanking a CDRW can take quite some time. If you'd like to watch the progress you can flip over to another console and type:\n\
+		\ntail -f $temp_dir/cd_blanking" 0 0
+		$cdburner -v blank=fast -eject dev=$burn_device &>$temp_dir/cd_blanking
+	else
+		dialog --title "Blanking CDRW" --cr-wrap --infobox "Blanking CDRW\n\
+		\nBlanking a CDRW can take quite some time. If you'd like to watch the progress you can flip over to another console and type:\n\
+		\ntail -f $temp_dir/cd_blanking" 0 0
+		$cdburner -v blank=fast -eject speed=$blanking_speed dev=$burn_device &>$temp_dir/cd_blanking
+	fi
+}
+
+# function that burns an ISO image on a dvd
+dvd_burniso () {
+	dialog --clear --title "Select the burning speed" --radiolist "Select the burning speed from the choices below" 0 0 0 \
+	0 "1x" "on" \
+	1 "2x" "off" \
+	2 "4x" "off" \
+	3 "8x" "off" \
+	4 "12x" "off" \
+	5 "16x" "off" \
+	6 "24x" "off" \
+	7 "32x" "off" \
+	8 "42x" "off" \
+	9 "54x" "off" \
+	10 "auto" "off" 2> $temp_dir/dvd_burniso_speed
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+	dvd_burn_iso_speed=`cat $temp_dir/dvd_burniso_speed`
+	case $dvd_burn_iso_speed in
+		0 ) burning_speed=1
+			;;
+		1 ) burning_speed=2
+			;;
+		2 ) burning_speed=4
+			;;
+		3 ) burning_speed=8
+			;;
+		4 ) burning_speed=12
+			;;
+		5 ) burning_speed=16
+			;;
+		6 ) burning_speed=24
+			;;
+		7 ) burning_speed=32
+			;;
+		8 ) burning_speed=42
+			;;
+		9 ) burning_speed=54
+			;;
+		10 ) burning_speed="auto"
+			;;
+	esac
+	if [[ $burning_speed == "auto" ]];then
+		dialog --title "Burning ISO image on DVD" --cr-wrap --infobox "Burning `basename $isoimage`\n\
+		\nThis process can take quite some time, if you'd like to watch the progress you can switch to another console and type:\n\
+		\ntail -f $temp_dir/iso_recording_DVD" 0 0
+		$dvdburner -dvd-compat -Z $burn_device=$isoimage &>$temp_dir/iso_recording_DVD
+	else
+		dialog --title "Burning ISO image on DVD" --cr-wrap --infobox "Burning `basename $isoimage`\n\
+		\nThis process can take quite some time, if you'd like to watch the progress you can switch to another console and type:\n\
+		\ntail -f $temp_dir/iso_recording_DVD" 0 0
+		$dvdburner -speed=$burning_speed -dvd-compat -Z $burn_device=$isoimage &>$temp_dir/iso_recording_DVD
+	fi
+}
+
+# iso check function
+isocheck () {
+	echo "** Verifying md5sums between $check_isoimage <-> $burn_device"
+	dd if=$burn_device | head -c $(stat --format=%s $check_isoimage) | md5sum && md5sum $check_isoimage
+}
+
+# function that verify a written disk
+disk_verify () {
+	dialog --clear --title "Verify disk" --msgbox "You're going to verify the consistency of a written disk.\n\
+	To do so you must have access to the original ISO image of the written disk.\n\
+	ISO image verification will be made using md5 sum both on the disk and on the image." 0 0
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+	dialog --clear --title "Select an ISO image" --fselect ~/ 0 0 2> $temp_dir/check_iso_selected
+	case $? in
+	0 ) continue
+		;;
+	1 ) exit
+		;;
+	esac
+	check_isoimage=`cat $temp_dir/check_iso_selected`
+	dialog --title "Checking written disk" --cr-wrap --infobox "Checking iso image consistency with written disk.\n\
+	\nThis process can take quite some time, if you'd like to watch the progress you can switch to another console and type:\n\
+	\ntail -f $temp_dir/iso_verification" 0 0
+	isocheck &>$temp_dir/iso_verification
+}
+
+
+# let's start executing the program
+check_temp
+welcome
+main_menu
+
+operation=`cat $temp_dir/oper_menu`
+
+case $operation in
+	0 ) checkiso
+		;;
+	1 ) checkiso
+		;;
+	2 ) dialog --clear --title "info" --msgbox "Trying to create and burn a data CD. This feature will be coming out soon. Stay tuned" 0 0
+		;;
+	3 ) dialog --clear --title "info" --msgbox "Trying to create and burn a data DVD. This feature will be implemented soon." 0 0
+		;;
+	4 ) blank_cd
+		;;
+	5 ) disk_verify
+esac
+
+
+exit
